@@ -8,14 +8,28 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var viewModel = DatasheetViewModel()
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        NavigationSplitView {
+            DatasheetSidebarView(viewModel: viewModel)
+        } detail: {
+            ChatView(viewModel: viewModel)
         }
-        .padding()
+        .navigationTitle("")
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                ModelStatusView(availability: viewModel.analyzerService.modelAvailability)
+            }
+        }
+        .alert("Error", isPresented: $viewModel.showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+            }
+        }
+        .frame(minWidth: 800, minHeight: 600)
     }
 }
 
