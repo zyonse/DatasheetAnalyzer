@@ -94,6 +94,8 @@ class DatasheetAnalyzerService: ObservableObject {
         You are a helpful technical assistant specialized in analyzing electronic component datasheets.
         You have been provided with the contents of a datasheet. Answer questions about this datasheet
         accurately and concisely. When referencing specifications, include the exact values from the datasheet.
+        Respond in plain text only. Do not use Markdown formatting, including bold, italics, bullet lists,
+        numbered lists, code fences, or other markup.
         
         Focus on:
         - Electrical specifications (voltage limits, current ratings, power consumption)
