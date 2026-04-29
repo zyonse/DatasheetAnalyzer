@@ -9,6 +9,53 @@ import Foundation
 import FoundationModels
 import Combine
 
+/// Tool for the foundation model to perform keyword searches on the datasheet
+struct KeywordSearchTool: Tool {
+    let datasheetText: String
+    
+    var description: String {
+        "Search the datasheet for instances of a specific keyword to find relevant information over the whole document."
+    }
+    
+    @Generable
+    struct Arguments {
+        let keyword: String
+    }
+    
+    func call(arguments: Arguments) async throws -> String {
+        let keyword = arguments.keyword
+        let text = datasheetText
+        
+        guard !keyword.isEmpty, text.localizedCaseInsensitiveContains(keyword) else {
+            return "No occurrences of '\(keyword)' found in the datasheet."
+        }
+        
+        var results: [String] = []
+        let nsText = text as NSString
+        var searchRange = NSRange(location: 0, length: nsText.length)
+        let contextSize = 500 // Reduce context size to fit in context window and avoid contextTooLarge Error
+        let maxResults = 3 // Reduce max results
+        
+        while searchRange.location < nsText.length {
+            let matchRange = nsText.range(of: keyword, options: .caseInsensitive, range: searchRange)
+            if matchRange.location != NSNotFound {
+                let start = max(0, matchRange.location - contextSize)
+                let end = min(nsText.length, matchRange.location + matchRange.length + contextSize)
+                let contextRange = NSRange(location: start, length: end - start)
+                let context = nsText.substring(with: contextRange)
+                results.append("... \(context) ...")
+                
+                searchRange = NSRange(location: matchRange.location + matchRange.length, length: nsText.length - (matchRange.location + matchRange.length))
+                if results.count >= maxResults { break }
+            } else {
+                break
+            }
+        }
+        
+        return results.joined(separator: "\n\n---\n\n")
+    }
+}
+
 /// Service that interfaces with Apple's Foundation Model for datasheet Q&A
 @MainActor
 class DatasheetAnalyzerService: ObservableObject {
@@ -79,21 +126,14 @@ class DatasheetAnalyzerService: ObservableObject {
             throw ServiceError.modelNotAvailable("Model not ready")
         }
         
-        // Truncate the datasheet text if it's too long for the context window
-        // The model supports ~4096 tokens, roughly 3-4 chars per token
-        // Leave room for instructions, prompts, and responses
-        let maxContextChars = 8000
-        var contextText = datasheet.extractedText
-        if contextText.count > maxContextChars {
-            contextText = String(contextText.prefix(maxContextChars)) + "\n\n[Text truncated due to length...]"
-        }
-        
-        currentDatasheetContext = contextText
+        currentDatasheetContext = datasheet.extractedText
         
         let instructions = """
         You are a helpful technical assistant specialized in analyzing electronic component datasheets.
-        You have been provided with the contents of a datasheet. Answer questions about this datasheet
-        accurately and concisely. When referencing specifications, include the exact values from the datasheet.
+        You have been provided with a tool to keyword search the full contents of the datasheet. 
+        Use the `KeywordSearchTool` to reliably retrieve specifications, pinouts, and application details before answering.
+        Do NOT assume or halluncinate information without searching for it first.
+        Answer questions about this datasheet accurately and concisely. When referencing specifications, include the exact values from the datasheet.
         Respond in plain text only. Do not use Markdown formatting, including bold, italics, bullet lists,
         numbered lists, code fences, or other markup.
         
@@ -105,14 +145,16 @@ class DatasheetAnalyzerService: ObservableObject {
         - Package information
         - Application circuit recommendations
         
-        If you cannot find the requested information in the provided datasheet content, say so clearly.
+        If you cannot find the requested information even after searching, say so clearly.
         Always be precise with numbers and units.
-        
-        DATASHEET CONTENT:
-        \(contextText)
         """
         
-        session = LanguageModelSession(instructions: Instructions(instructions))
+        let searchTool = KeywordSearchTool(datasheetText: datasheet.extractedText)
+        
+        session = LanguageModelSession(
+            tools: [searchTool],
+            instructions: Instructions(instructions)
+        )
     }
     
     /// Ask a question about the currently loaded datasheet
